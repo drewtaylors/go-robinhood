@@ -2,9 +2,9 @@ package robinhood
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"math"
+	"log"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -16,14 +16,14 @@ import (
 
 // CryptoOrder is the payload to create a crypto currency order
 type CryptoOrder struct {
-	AccountID      string  `json:"account_id,omitempty"`
-	CurrencyPairID string  `json:"currency_pair_id,omitempty"`
-	Price          float64 `json:"price,omitempty"`
-	RefID          string  `json:"ref_id,omitempty"`
-	Side           string  `json:"side,omitempty"`
-	TimeInForce    string  `json:"time_in_force,omitempty"`
-	Quantity       float64 `json:"quantity,omitempty"`
-	Type           string  `json:"type,omitempty"`
+	AccountID      string `json:"account_id,omitempty"`
+	CurrencyPairID string `json:"currency_pair_id,omitempty"`
+	Price          string `json:"price,omitempty"`
+	RefID          string `json:"ref_id,omitempty"`
+	Side           string `json:"side,omitempty"`
+	TimeInForce    string `json:"time_in_force,omitempty"`
+	Quantity       string `json:"quantity,omitempty"`
+	Type           string `json:"type,omitempty"`
 }
 
 // CryptoOrderOutput holds the response from api
@@ -63,19 +63,21 @@ type CryptoOrderOpts struct {
 }
 
 // CryptoOrder will actually place the order
-func (c *Client) CryptoOrder(ctx context.Context, cryptoPair CryptoCurrencyPair, o CryptoOrderOpts) (*CryptoOrderOutput, error) {
-	var quantity = math.Round(o.AmountInDollars / o.Price)
+func (c *Client) CryptoOrder(cryptoPair CryptoCurrencyPair, o CryptoOrderOpts) (*CryptoOrderOutput, error) {
+	var quantity float64 = o.AmountInDollars / o.Price
+
 	a := CryptoOrder{
 		AccountID:      c.CryptoAccount.ID,
 		CurrencyPairID: cryptoPair.ID,
-		Quantity:       quantity,
-		Price:          o.Price,
+		Quantity:       fmt.Sprintf("%.8f", quantity),
+		Price:          fmt.Sprintf("%.2f", o.Price),
 		RefID:          uuid.New().String(),
-		Side:           o.Side.String(),
-		TimeInForce:    o.TimeInForce.String(),
-		Type:           o.Type.String(),
+		Side:           strings.ToLower(o.Side.String()),
+		TimeInForce:    strings.ToLower(o.TimeInForce.String()),
+		Type:           strings.ToLower(o.Type.String()),
 	}
 
+	log.Println(a)
 	payload, err := json.Marshal(a)
 
 	if err != nil {
@@ -83,27 +85,28 @@ func (c *Client) CryptoOrder(ctx context.Context, cryptoPair CryptoCurrencyPair,
 	}
 
 	post, err := http.NewRequest("POST", EPCryptoOrders, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("could not create Crypto http.Request: %w", err)
-	}
-
 	post.Header.Add("Content-Type", "application/json")
 
 	var out CryptoOrderOutput
-	err = c.DoAndDecode(ctx, post, &out)
+	err = c.DoAndDecode(post, &out)
+
+	if err != nil {
+		return nil, err
+	}
+
 	out.client = c
-	return &out, err
+	return &out, nil
 }
 
-// Cancel will cancel the order.
-func (o CryptoOrderOutput) Cancel(ctx context.Context) error {
+// Cancel will cancel the order
+func (o CryptoOrderOutput) Cancel() error {
 	post, err := http.NewRequest("POST", o.CancelURL, nil)
 	if err != nil {
 		return err
 	}
 
 	var output CryptoOrderOutput
-	err = o.client.DoAndDecode(ctx, post, &output)
+	err = o.client.DoAndDecode(post, &output)
 
 	if err != nil {
 		return errors.Wrap(err, "could not decode response")
